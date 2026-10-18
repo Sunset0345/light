@@ -1,0 +1,163 @@
+name: Build Android APK
+
+on:
+  # Allows you to manually run the workflow
+  # from GitHub -> Actions -> Build Android APK
+  workflow_dispatch:
+
+  # Automatically build when code is pushed to main
+  push:
+    branches:
+      - main
+
+  # Also test APK build on pull requests to main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    name: Build Ionic Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # =====================================================
+      # 1. DOWNLOAD PROJECT FROM GITHUB
+      # =====================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # =====================================================
+      # 2. SETUP NODE.JS
+      # =====================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+
+      # =====================================================
+      # 3. INSTALL NPM DEPENDENCIES
+      # =====================================================
+      - name: Install dependencies
+        run: npm ci
+
+
+      # =====================================================
+      # 4. BUILD IONIC / VUE PROJECT
+      #
+      # This creates the production web build,
+      # normally inside the dist folder.
+      # =====================================================
+      - name: Build Ionic Vue application
+        run: npm run build
+
+
+      # =====================================================
+      # 5. SETUP JAVA
+      #
+      # Android / Gradle requires Java.
+      # Java 17 is a safe choice for modern
+      # Android Gradle projects.
+      # =====================================================
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+
+      # =====================================================
+      # 6. CHECK ANDROID PROJECT
+      #
+      # Normally the android folder should already
+      # be committed to GitHub.
+      #
+      # If android does not exist, this creates it.
+      # =====================================================
+      - name: Check Android project
+        shell: bash
+        run: |
+          if [ ! -d "android" ]; then
+            echo "Android folder not found."
+            echo "Creating Android platform..."
+            npx cap add android
+          else
+            echo "Android folder already exists."
+          fi
+
+
+      # =====================================================
+      # 7. SYNC CAPACITOR
+      #
+      # Copies the latest Vue/Ionic production build
+      # into the Android project.
+      # =====================================================
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+
+      # =====================================================
+      # 8. MAKE GRADLE WRAPPER EXECUTABLE
+      # =====================================================
+      - name: Give Gradle permission
+        working-directory: android
+        run: chmod +x gradlew
+
+
+      # =====================================================
+      # 9. BUILD DEBUG APK
+      #
+      # Output:
+      #
+      # android/app/build/outputs/apk/debug/app-debug.apk
+      # =====================================================
+      - name: Build Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+
+      # =====================================================
+      # 10. VERIFY APK
+      # =====================================================
+      - name: Verify APK
+        shell: bash
+        run: |
+          APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ -f "$APK_PATH" ]; then
+            echo "============================================"
+            echo "APK BUILD SUCCESSFUL"
+            echo "============================================"
+            ls -lh "$APK_PATH"
+          else
+            echo "============================================"
+            echo "APK NOT FOUND"
+            echo "============================================"
+            exit 1
+          fi
+
+
+      # =====================================================
+      # 11. UPLOAD APK TO GITHUB ACTIONS
+      #
+      # After the workflow finishes:
+      #
+      # GitHub
+      # -> Actions
+      # -> Build Android APK
+      # -> Latest successful run
+      # -> Artifacts
+      # -> Expense-Tracker-APK
+      # =====================================================
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Expense-Tracker-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
